@@ -1,0 +1,20 @@
+# Entornos
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Credenciales
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Datos y modelos (no versionar, solo estructura)
+data/*
+!data/.gitkeep
+models/*
+!models/.gitkeep
+
+# Otros
+.DS_Store
