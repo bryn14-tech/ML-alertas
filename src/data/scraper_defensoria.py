@@ -17,12 +17,8 @@ HEADERS = {
     "X-PowerBI-ResourceKey": "95611526-9781-4044-9590-2b21e0fa8c79",
 }
 
-ZONAS_CON_TILDE = [
-    "Áncash", "Huánuco", "Pasco", "Cajamarca", "La Libertad", "Ica", "Lima Provincias",
-]
-ZONAS_SIN_TILDE = [
-    "Ancash", "Huanuco", "Pasco", "Cajamarca", "La Libertad", "Ica", "Lima Provincias",
-]
+ZONAS_CON_TILDE = ["Áncash"]
+ZONAS_SIN_TILDE = ["Ancash"]
 
 MESES = [
     "enero", "febrero", "marzo", "abril", "mayo", "junio",

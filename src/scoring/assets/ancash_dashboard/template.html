@@ -68,9 +68,9 @@
         <span style="font-size:12.5px;color:#8497ab;">por Unidad de Gestión Territorial (UGT)</span>
       </div>
       <div style="display:flex;align-items:center;gap:14px;">
-        <span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#a6b7c9;"><span style="width:11px;height:11px;border-radius:3px;background:#ef4d5e;"></span>Alto ≥ 55%</span>
-        <span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#a6b7c9;"><span style="width:11px;height:11px;border-radius:3px;background:#f5a623;"></span>Medio 35–54%</span>
-        <span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#a6b7c9;"><span style="width:11px;height:11px;border-radius:3px;background:#2ec58f;"></span>Bajo &lt; 35%</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#a6b7c9;"><span style="width:11px;height:11px;border-radius:3px;background:#ef4d5e;"></span>Alto ≥ 80%</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#a6b7c9;"><span style="width:11px;height:11px;border-radius:3px;background:#f5a623;"></span>Medio 44–79%</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#a6b7c9;"><span style="width:11px;height:11px;border-radius:3px;background:#2ec58f;"></span>Bajo &lt; 44%</span>
       </div>
     </div>
 
@@ -272,8 +272,8 @@ class Component extends DCLogic {
   }
 
   level(p){
-    if(p>=55) return {level:'ALTO', color:'#ef4d5e', soft:'#ef4d5e'};
-    if(p>=35) return {level:'MEDIO', color:'#f5a623', soft:'#f5a623'};
+    if(p>=80) return {level:'ALTO', color:'#ef4d5e', soft:'#ef4d5e'};
+    if(p>=44) return {level:'MEDIO', color:'#f5a623', soft:'#f5a623'};
     return {level:'BAJO', color:'#2ec58f', soft:'#2ec58f'};
   }
 
@@ -505,7 +505,7 @@ class Component extends DCLogic {
       const u=this.UGT().find(x=>x.name===active);
       const mt=this.level(u.prob), meta=this.META()[active];
       const nDist=this.ROWS().filter(r=>r[0]===active).length;
-      const ac=u.prob>=55?{label:'Atención prioritaria',color:'#ef4d5e'}:(u.prob>=35?{label:'Monitoreo reforzado',color:'#f5a623'}:{label:'Vigilancia rutinaria',color:'#2ec58f'});
+      const ac=u.prob>=80?{label:'Atención prioritaria',color:'#ef4d5e'}:(u.prob>=44?{label:'Monitoreo reforzado',color:'#f5a623'}:{label:'Vigilancia rutinaria',color:'#2ec58f'});
       panel={panelDetail:true,panelOverview:false,panelColor:mt.color,
         panelName:active,panelLevel:mt.level,panelProb:u.prob.toFixed(1),panelDesc:meta.desc,
         panelBadgeStyle:badge(mt.color),
@@ -540,9 +540,9 @@ class Component extends DCLogic {
     const meta=window.__DATA__.meta;
     const totalProtesta=ugtAll.reduce((s,u)=>s+u.protesta,0);
     const totalViolencia=ugtAll.reduce((s,u)=>s+u.violencia,0);
-    const altoCount=ugtAll.filter(u=>u.prob>=55).length;
-    const medioCount=ugtAll.filter(u=>u.prob>=35&&u.prob<55).length;
-    const bajoCount=ugtAll.filter(u=>u.prob<35).length;
+    const altoCount=ugtAll.filter(u=>u.prob>=80).length;
+    const medioCount=ugtAll.filter(u=>u.prob>=44&&u.prob<80).length;
+    const bajoCount=ugtAll.filter(u=>u.prob<44).length;
 
     return {
       mapSvg:this.buildMap(active),

@@ -33,8 +33,20 @@ FEATURES = [
     "delta_prot", "racha_prot", "dias_desde_ultima_prot",
     "n_feriados", "es_semana_electoral", "dias_hasta_eleccion", "es_fecha_critica",
     "mes", "trimestre", "semana_iso",
-    "tasa_pobreza", "def_escalamiento_ancash",
+    "tasa_pobreza", "def_escalamiento_ancash", "oefa_denuncias_mineria_12m",
+    "rep_antamina_neg_4w", "rep_compromiso_4w",
 ]
+# "prot_impacto_ultimo" (severidad de la última protesta, dataProtestas.xlsx)
+# se probó y se descartó: bajó el PR-AUC de 0.780 a 0.761 (logistic_regression)
+# "hist_prot_antamina_acum", "hist_prot_antamina_5y" (tensión histórica 2001–,
+# dataHistoricaProtestas.xlsx) se probaron y se descartaron: bajaron PR-AUC de
+# 0.8004 a 0.7962. Son casi constantes por UGT en la ventana 2024-2026 (todos
+# los eventos históricos son pre-2024), por lo que actúan como ruido. Cuando
+# dataIncidentes cubra períodos anteriores a 2023, podrían activarse junto con
+# una ventana de entrenamiento extendida. Ver _join_historica() en build_ancash.
+# en vez de mejorarlo. La función _join_impacto() en build_ancash.py se
+# mantiene (la columna queda en el dataset) por si sirve en una iteración
+# futura con más datos, pero no se usa en el modelo. Ver memoria del proyecto.
 
 MODELOS = {
     "logistic_regression": Pipeline([
@@ -110,6 +122,7 @@ def main() -> None:
         filas.append({"tipo": "baseline", "nombre": nombre, "pr_auc_medio": round(m, 4), "pr_auc_std": round(s, 4)})
 
     mejor_modelo, mejor_modelo_pr = None, -1
+    pr_auc_por_modelo: dict[str, float] = {}
     for nombre, pipe in MODELOS.items():
         pr, rc = evaluar_modelo(pipe, X, y)
         m = float(np.mean(pr)) if pr else float("nan")
@@ -118,6 +131,7 @@ def main() -> None:
         print(f"{nombre:<22} | {m:<13.4f} | {s:<8.4f} | {rec:<10.4f} | {len(pr):<5}")
         filas.append({"tipo": "modelo", "nombre": nombre, "pr_auc_medio": round(m, 4),
                       "pr_auc_std": round(s, 4), "recall_p50": round(rec, 4)})
+        pr_auc_por_modelo[nombre] = m
         if not np.isnan(m) and m > mejor_modelo_pr:
             mejor_modelo, mejor_modelo_pr = nombre, m
 
@@ -144,6 +158,11 @@ def main() -> None:
     if es_go:
         modelo_final_nombre = "logistic_regression"
         modelo_final = clone(MODELOS[modelo_final_nombre]).fit(X, y)
+        # IMPORTANTE: pr_auc_cv debe ser el PR-AUC del modelo que efectivamente
+        # se guarda (logistic_regression), no el del "mejor modelo" usado para
+        # el punto de control go/no-go — pueden diferir (random_forest suele
+        # ganar por PR-AUC medio, pero se descarta por inestabilidad/±std alto).
+        pr_auc_modelo_final = pr_auc_por_modelo[modelo_final_nombre]
         ruta = Path("models") / "modelo_v1_track_A_ancash.pkl"
         ruta.parent.mkdir(parents=True, exist_ok=True)
         joblib.dump({
@@ -153,12 +172,14 @@ def main() -> None:
             "region": "Áncash",
             "unidad": "UGT × semana",
             "target": TARGET,
-            "pr_auc_cv": round(mejor_modelo_pr, 4),
+            "pr_auc_cv": round(pr_auc_modelo_final, 4),
+            "pr_auc_mejor_candidato": round(mejor_modelo_pr, 4),
             "pr_auc_baseline": round(mejor_base, 4),
             "modelo_tipo": modelo_final_nombre,
             "trained_on": str(pd.Timestamp.now().date()),
         }, ruta)
-        print(f"✓ Modelo final guardado en {ruta} ({modelo_final_nombre}, entrenado sobre {len(X)} filas)")
+        print(f"✓ Modelo final guardado en {ruta} ({modelo_final_nombre}, PR-AUC={pr_auc_modelo_final:.4f}, "
+              f"entrenado sobre {len(X)} filas)")
 
 
 if __name__ == "__main__":

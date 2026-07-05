@@ -8,18 +8,10 @@ ARCHIVO_INEI = Path("src/data") / "INEI TASA DE POBREZA x DEP.xlsx"
 INTERIM_DIR = Path("data/interim")
 SALIDA = INTERIM_DIR / "inei_pobreza.parquet"
 
-# ── Mapeo depto INEI → zonas canónicas del proyecto ──────────────────────────
-# Un departamento puede cubrir varias zonas de predicción.
-# Pisco es provincia de Ica; Huarmey es costa de Áncash;
-# Barranca/Supe/Huaura/Huaral están en Lima.
+# ── Mapeo depto INEI → zona canónica del proyecto ────────────────────────────
+# Proyecto enfocado en Áncash (modelo Track A regional, UGT × semana).
 ZONA_MAP: dict[str, list[str]] = {
-    "Áncash":                ["Áncash", "Huarmey"],
-    "Huánuco":               ["Huánuco"],
-    "Pasco":                 ["Pasco"],
-    "Cajamarca":             ["Cajamarca"],
-    "La Libertad":           ["La Libertad"],
-    "Ica":                   ["Ica", "Pisco"],
-    "Lima (Región + Metro)": ["Barranca", "Lima Provincias"],
+    "Áncash": ["Áncash"],
 }
 
 AÑOS = [2023, 2024, 2025]

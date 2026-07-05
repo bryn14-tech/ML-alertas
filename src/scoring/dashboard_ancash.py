@@ -5,8 +5,7 @@ Enfoque HÍBRIDO:
   · Datos REALES donde existen: índice de actividad observada por distrito
     (eventos geolocalizados de la BD interna), serie temporal y composición.
   · Secciones marcadas explícitamente como "pendiente de fuente" para lo que
-    el proyecto aún no tiene (drivers socioeconómicos, compromiso de partes,
-    simulador causal).
+    el proyecto aún no tiene (drivers socioeconómicos, simulador causal).
 
 IMPORTANTE: el índice por distrito es ACTIVIDAD OBSERVADA (lo que ya ocurrió),
 no una predicción del modelo ML. Áncash minero es Track A y no cuenta con
@@ -81,11 +80,15 @@ def figura_composicion(comp: pd.DataFrame) -> go.Figure:
     return fig
 
 
-# ── Capa predictiva (modelo Track A) ─────────────────────────────────────────
+# ── Capa predictiva (modelo Track A) ──────────────────────────────────────────
+# Umbral calibrado (2026-06-30, src/models/recalibrar_umbral.py): ALTO a 80%
+# (precisión 74%, recall 65%, tasa de alerta 56% out-of-fold). MEDIO usa la
+# tasa histórica de protesta (43.9% ≈ 44%) como referencia de "más riesgo que
+# el promedio". Antes 55/35 eran solo referencia visual sin respaldo estadístico.
 def _nivel_prob(pct: float) -> tuple[str, str]:
-    if pct >= 55:
+    if pct >= 80:
         return "Alto", ROJO
-    if pct >= 35:
+    if pct >= 44:
         return "Medio", AMBAR
     return "Bajo", VERDE
 
@@ -153,6 +156,24 @@ def construir_html(idx: pd.DataFrame, fig_serie: go.Figure, fig_radar: go.Figure
     <h2>🔮 Predicción de conflicto por UGT <span class="badge-pend">MODELO NO DISPONIBLE</span></h2>
     <p class="hint">Entrena el modelo con <code>python -m src.models.train_ancash</code> para activar esta capa.</p>
   </div>"""
+
+    # KPI: Compromiso de las partes (rep_compromiso_4w de reportes Antamina)
+    if pred is not None and "rep_compromiso_4w" in pred.columns:
+        comp_tot = int(pred["rep_compromiso_4w"].sum())
+        if comp_tot > 0:
+            partes = ", ".join(
+                f"{r['ugt'].split()[0]} ({int(r['rep_compromiso_4w'])})"
+                for _, r in pred.sort_values("rep_compromiso_4w", ascending=False).iterrows()
+                if r["rep_compromiso_4w"] > 0
+            )
+            kpi_comp_big = f'<span style="color:{VERDE}">{comp_tot}</span>'
+            kpi_comp_sub = f"menciones de acuerdos/mesas activas en últ. 4 sem. · {partes}"
+        else:
+            kpi_comp_big = f'<span style="color:{TEXTO_TENUE}">0</span>'
+            kpi_comp_sub = "Sin señales de compromiso registradas en últimas 4 semanas"
+    else:
+        kpi_comp_big = f'<span style="color:{TEXTO_TENUE}">—</span>'
+        kpi_comp_sub = f'Requiere modelo activo <span class="badge-pend">PENDIENTE DE FUENTE</span>'
 
     # Chips de tipos de conflictividad reales dominantes
     comp_ord = comp.sort_values("eventos", ascending=False)
@@ -319,8 +340,8 @@ def construir_html(idx: pd.DataFrame, fig_serie: go.Figure, fig_radar: go.Figure
     </div>
     <div class="kpi">
       <div class="lbl">Compromiso de las partes</div>
-      <div class="big" style="color:{TEXTO_TENUE}">—</div>
-      <div class="sub">Requiere registro de mesas de diálogo <span class="badge-pend">PENDIENTE DE FUENTE</span></div>
+      <div class="big">{kpi_comp_big}</div>
+      <div class="sub">{kpi_comp_sub}</div>
     </div>
   </div>
 

@@ -13,8 +13,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ARCHIVO_INCIDENTES = Path("src/data") / "BD_Incidentes - copia.xlsx"
-HOJA = "INCIDENTES"
+ARCHIVO_INCIDENTES = Path("src/data") / "dataIncidentes.xlsx"
+ARCHIVO_FORMULARIO = Path("src/data") / "dataFormulario.xlsx"
+HOJA = "Hoja1"
 
 # ── Jerarquía territorial de ANTAMINA (tabla UGT → Provincia → Distrito) ──────
 JERARQUIA: list[tuple[str, str, str]] = [
@@ -79,18 +80,59 @@ def _norm(s) -> str:
 
 # ── Carga de incidentes (con DISTRITO, sin colapsar a zona) ──────────────────
 def _cargar_incidentes_raw() -> pd.DataFrame:
-    raw = pd.read_excel(ARCHIVO_INCIDENTES, sheet_name=HOJA, header=1)
+    """Eventos geolocalizados (dataIncidentes.xlsx) + protestas/paros/bloqueos
+    de dataFormulario.xlsx (monitoreo de noticias específico de Antamina).
+
+    dataFormulario tiene mucha más densidad de eventos de protesta que
+    dataIncidentes, pero es un log de NOTICIAS (varias filas pueden describir
+    el mismo evento real) — se deduplica a 1 fila por (distrito, fecha) en
+    `_cargar_formulario_protestas_raw()`, y aquí solo se agregan las
+    combinaciones (distrito, fecha) que dataIncidentes NO tiene, para no
+    contar el mismo evento dos veces si aparece en ambas fuentes.
+    """
+    raw = pd.read_excel(ARCHIVO_INCIDENTES, sheet_name=HOJA, header=0)
     df = pd.DataFrame()
-    df["fecha"] = pd.to_datetime(raw["ID_FECHA"], errors="coerce")
+    df["fecha"] = pd.to_datetime(raw["ID_FECHA"], errors="coerce", format="mixed")
     df["depto_n"] = raw["ID_DEPARTAMENTO"].apply(_norm).str.upper()
     df["distrito_n"] = raw["DISTRITO"].apply(_norm)
     df["categoria"] = raw["MOTIVO"].apply(lambda m: MOTIVO_A_CATEGORIA.get(_norm(m).upper(), "OTRO"))
     df["titulo"] = raw["TITULO"].astype(str).str.strip()
-    df["lat"] = pd.to_numeric(raw["LATITUD"], errors="coerce")
-    df["lon"] = pd.to_numeric(raw["LONGITUD"], errors="coerce")
+    df["lat"] = np.nan
+    df["lon"] = np.nan
     df = df[df["fecha"].notna()].copy()
     df = df[df["depto_n"].isin({_norm(d).upper() for d in DEPTOS_VALIDOS})]
     df = df.drop_duplicates(subset=["fecha", "distrito_n", "titulo"])
+
+    formulario = _cargar_formulario_protestas_raw()
+    ya_cubiertas = set(zip(
+        df.loc[df["categoria"] == "PROTESTA", "distrito_n"],
+        df.loc[df["categoria"] == "PROTESTA", "fecha"].dt.normalize(),
+    ))
+    formulario = formulario[
+        ~formulario.apply(lambda r: (r["distrito_n"], r["fecha"]) in ya_cubiertas, axis=1)
+    ]
+    return pd.concat([df, formulario], ignore_index=True)
+
+
+def _cargar_formulario_protestas_raw() -> pd.DataFrame:
+    """Eventos de categoría 'Protestas, Paros y Bloqueos' de dataFormulario.xlsx,
+    deduplicados a 1 fila por (distrito, fecha) — el formulario es un log de
+    noticias y un mismo evento real suele generar varias filas (distintos
+    artículos sobre el mismo hecho)."""
+    raw = pd.read_excel(ARCHIVO_FORMULARIO, sheet_name="Hoja1")
+    df = pd.DataFrame()
+    df["fecha"] = pd.to_datetime(raw["Marca temporal"], errors="coerce").dt.normalize()
+    df["depto_n"] = raw["ID_Departamento"].apply(_norm).str.upper()
+    df["distrito_n"] = raw["Distrito"].astype(str).apply(_norm)
+    df["categoria"] = "PROTESTA"
+    df["titulo"] = raw["Insertar noticia (Formato tabla de ChatGTP)"].astype(str).str.strip()
+    df["lat"] = np.nan
+    df["lon"] = np.nan
+
+    es_protesta = raw["Categoria"].astype(str).str.contains("Bloqueo|Paro|Protesta", case=False, na=False)
+    df = df[es_protesta & df["fecha"].notna()].copy()
+    df = df[df["depto_n"].isin({_norm(d).upper() for d in DEPTOS_VALIDOS})]
+    df = df.sort_values("fecha").drop_duplicates(subset=["distrito_n", "fecha"], keep="first")
     return df
 
 

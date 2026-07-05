@@ -1,156 +1,183 @@
-# Proyecto: Modelo Predictivo de Conflictos Sociales — PROTECTA PERÚ
+# Proyecto: Modelo Predictivo de Conflictos Sociales — Áncash (ANTAMINA)
 
-Sistema de alerta temprana que estima, por zona de operación y con anticipación,
-la probabilidad de un conflicto social o protesta. Complementa (no reemplaza) el
-sistema de alertas reactivo actual.
+Sistema de alerta temprana que estima, por Unidad de Gestión Territorial (UGT)
+de ANTAMINA en Áncash y con anticipación, la probabilidad de un conflicto
+social o protesta. Complementa (no reemplaza) el sistema de alertas reactivo
+actual.
+
+**Alcance: exclusivamente la región de Áncash y el cliente ANTAMINA.** El
+proyecto se reenfocó a este alcance único; no se mantiene código, datos ni
+configuración de otras zonas o clientes.
 
 ## Objetivo
 
-Clasificación binaria supervisada con componente temporal (pronóstico): para una
-zona y una ventana futura, predecir si habrá conflicto/protesta (sí/no). El
-entregable final es un puntaje de riesgo semanal por zona, escrito a PostgreSQL y
-consumido por el sistema de alertas existente.
+Clasificación binaria supervisada con componente temporal (pronóstico): para
+una UGT y una ventana futura, predecir si habrá conflicto/protesta (sí/no). El
+entregable es un puntaje de riesgo semanal por UGT, consumido vía el dashboard
+predictivo y el script de scoring.
 
 ## Decisiones clave (NO cambiar sin justificar)
 
-- **Etiqueta:** binaria. Definida como "aparición de conflicto nuevo o evento de
-  protesta activa" en la ventana — NO la mera existencia de un conflicto crónico
-  (eso haría el target trivialmente positivo en zonas como Áncash).
-- **Unidad de predicción:** una fila = `zona × semana` (granularidad semanal).
-- **Horizontes:** evaluar multi-horizonte `y_7`, `y_14`, `y_30`, `y_60` días.
-- **Tipo de conflicto:** CUALQUIER conflicto/protesta que afecte directa o
-  indirectamente al cliente (paros, bloqueos, protestas, coyuntura política,
-  inseguridad). NO se limita a minería ni agro.
-- **Dos tracks de etiqueta** (difieren en la FUENTE del label, no en el tipo de
-  conflicto):
-  - Track A (departamental, label desde Defensoría): Áncash, Huánuco, Pasco,
-    Cajamarca, La Libertad.
-  - Track B (sub-departamental, label por eventos ACLED/GDELT + alertas propias):
-    Ica, Pisco, Huarmey, Barranca, Supe, Huaura, Huaral.
-- **Ruteo zona → cliente:** capa determinista SEPARADA del modelo (evolución del
-  `router.py` actual). El modelo predice por zona; el router traduce a cliente(s),
-  multi-etiqueta. El riesgo NACIONAL es una feature global, no una zona.
-- **Petrotal (Loreto/Ucayali): FUERA de alcance.**
+- **Etiqueta:** binaria. Definida como "protesta nueva en la UGT" en la
+  ventana futura — NO la mera existencia de conflicto crónico (eso haría el
+  target trivialmente positivo).
+- **Unidad de predicción:** una fila = `UGT × semana` (granularidad semanal).
+  NO distrito (datos demasiado escasos: 9 de 18 distritos de interés tuvieron
+  alguna vez una protesta) NI departamento completo (label se vuelve trivial
+  por protestas urbanas de Chimbote/Huaraz no relacionadas con la operación).
+- **UGTs de ANTAMINA (4):** Mina San Marcos, Huallanca, Valle Fortaleza,
+  Huarmey. Cada una agrupa varios distritos (ver `src/scoring/ancash_datos.py`,
+  constante `JERARQUIA`, 18 distritos en total).
+- **Horizontes:** evaluar multi-horizonte `y_14`, `y_30`, `y_60` días. El
+  modelo desplegado usa `y_30`.
+- **Tipo de conflicto:** protestas y violencia que afecten directa o
+  indirectamente a la operación de ANTAMINA en sus UGTs.
+- **Label y features autoregresivas vienen exclusivamente de eventos dentro
+  de los 18 distritos de las 4 UGTs** (BD de incidentes + formulario de
+  monitoreo Antamina). Tres features de contexto (`tasa_pobreza`,
+  `def_escalamiento_ancash`, `oefa_denuncias_mineria_12m`) son departamentales
+  o de actividad genérica, usadas como señal ambiente, no como fuente del
+  label.
+- **Hueco de cobertura conocido:** Paramonga (distrito de Valle Fortaleza,
+  único en provincia "Barranca - Lima") no tiene eventos en ninguna de las
+  fuentes actuales — quedó sin cobertura de incidentes tras el cambio de
+  fuente de datos (2026-06-30). Valle Fortaleza predice con los otros 9
+  distritos.
 
-## Zonas y clientes
+## Fuentes de datos (todas filtradas o acotadas a Áncash)
 
-| Zona | Cliente(s) |
-|------|-----------|
-| Áncash | Antamina |
-| Huánuco | Antamina |
-| Pasco | Antamina |
-| Cajamarca | Bechtel / Newmont |
-| La Libertad | Clientes Norte (híbrido sierra/costa) |
-| Ica | Agrícola Chapi, Clientes Sur |
-| Pisco | Pisco |
-| Huarmey (costa de Áncash) | Agrícola Huarmey |
-| Barranca | Agrícola Santa Azul, Agrícola Huarmey |
-| Supe / Huaura / Huaral | Agrícola Santa Azul |
-
-## Fuentes de datos
-
-- **Histórico propio (PostgreSQL/Neon):** 3 años de alertas clasificadas por
-  depto, nivel (CRIT/ALRT/INFO) y categoría. Features principales.
-- **Defensoría del Pueblo:** reporte mensual de conflictos por depto. Etiqueta
-  (track A).
-- **ACLED:** eventos de protesta geolocalizados. Etiqueta/feature (track B).
-  OJO: uso comercial puede requerir licencia; el proyecto debe funcionar sin ella.
-- **GDELT:** intensidad/tono mediático de conflicto. Feature.
-- **Calendario (ONPE/JNE, feriados, fechas críticas):** features estructurales.
-- **INEI:** indicadores socioeconómicos por depto. Features lentas.
-- **Commodities (cobre/oro):** feature en zonas mineras.
+- **BD de incidentes interna** (`src/data/dataIncidentes.xlsx`): eventos
+  geolocalizados con distrito y fecha. Fuente principal del label y de las
+  features autoregresivas (resolución semanal).
+- **Formulario de monitoreo Antamina** (`src/data/dataFormulario.xlsx`): log
+  de noticias específico de Antamina (~8,400 filas), categoría "Protestas,
+  Paros y Bloqueos". Se suma a la BD de incidentes (deduplicado a 1 evento
+  por distrito×fecha) — aporta ~3x más densidad de eventos de protesta dentro
+  de las 4 UGTs que la BD de incidentes sola. Ver `src/scoring/ancash_datos.py`,
+  `_cargar_formulario_protestas_raw()`.
+- **Reportes situacionales de Antamina** (`src/data/2025/`, `src/data/2026/`,
+  ~53 reportes Word/PowerPoint semanales/mensuales; `src/data/loader_reportes.py`):
+  texto narrativo del equipo de relaciones de Antamina. ÚNICA fuente del
+  proyecto que distingue explícitamente menciones A Antamina (no solo
+  conflicto genérico de la zona) y que registra compromiso de las partes
+  (mesas de diálogo, acuerdos, cronogramas) — antes marcado "PENDIENTE DE
+  FUENTE" en el dashboard. Features: `rep_antamina_neg_4w` (tensión dirigida
+  a Antamina), `rep_compromiso_4w` (mesas de diálogo/acuerdos activos).
+- **Defensoría del Pueblo** (`src/data/scraper_defensoria.py`): reporte
+  mensual de escalamiento de conflicto, acotado a Áncash. Feature de
+  contexto departamental (rezago de 2 meses, anti-fuga).
+- **Calendario** (feriados, elecciones, fechas críticas): features
+  estructurales, no específicas de zona.
+- **INEI** (`src/data/loader_inei.py`): tasa de pobreza de Áncash. Feature
+  lenta (anual), acotada a Áncash.
+- **OEFA/SINADA** (`src/data/loader_oefa.py`): denuncias ambientales públicas
+  (portal de datos abiertos), filtradas a actividad minera dentro de las 4
+  UGTs. Feature de **contexto acumulado** (ventana móvil de 12 meses),
+  NO un predictor de corto plazo validado — se intentó comprobar si las
+  denuncias anteceden a las protestas reales y el resultado fue inconcluso
+  por falta de superposición temporal entre fuentes (el archivo de OEFA
+  tiene ~12+ meses de rezago de publicación). Ver memoria del proyecto.
+- **Pendientes de integrar** (mejoras identificadas, no implementadas):
+  histórico de alertas propias, precio del cobre (commodities, zona minera),
+  intensidad mediática (GDELT).
 
 ## Regla crítica: anti-fuga temporal (leakage)
 
-- Toda feature de la semana `t` usa SOLO datos disponibles hasta la fecha de corte
-  (fin de la semana t). Nada posterior.
-- El label `y_h` mira la ventana futura `[t, t+h]`. Features miran atrás.
-- Defensoría se publica con rezago (reporte del mes M sale en M+1): usar SIEMPRE el
-  último reporte efectivamente publicado a la fecha de corte, nunca el del mes en
-  curso.
-- INEI/commodities: valor "as-of" (último publicado a la fecha).
+- Toda feature de la semana `t` usa SOLO datos disponibles hasta el fin de la
+  semana `t`. Nada posterior.
+- El label `y_h` mira la ventana futura `[t+1, t+h]`. Features miran atrás.
+- Defensoría se publica con rezago (reporte del mes M sale en M+1): usar
+  SIEMPRE el último reporte efectivamente publicado a la fecha de corte.
+- INEI: valor "as-of" (último publicado a la fecha, clip a 2025).
 
 ## Stack
 
-- Python + venv. pandas, scikit-learn, xgboost/lightgbm, jupyter.
-- Texto: sentence-transformers multilingüe o embeddings ya integrados.
-- Fases 0-3: trabajo 100% LOCAL. El histórico de alertas y demás fuentes se
-  exportan a archivos (CSV/Excel/Parquet) dentro de `data/` (gitignored). No se
-  configura Neon ni infraestructura de despliegue todavía.
-- BD (Fase 4, despliegue): PostgreSQL (Neon) + sqlalchemy/psycopg2. Cron job en
-  Railway que escribe a Postgres. Se evalúa si realmente se necesita al llegar a
-  esa fase.
+- Python + venv. pandas, scikit-learn, joblib.
+- Trabajo 100% LOCAL. Fuentes y datasets intermedios en `data/` (gitignored).
+  Sin Neon, sin Postgres, sin Railway — no hay despliegue en la nube.
 
 ## Metodología (no negociable)
 
-- **Validación temporal** (walk-forward / TimeSeriesSplit), NUNCA k-fold aleatorio.
+- **Validación temporal** (walk-forward / TimeSeriesSplit), NUNCA k-fold
+  aleatorio.
 - Métricas: **PR-AUC** y **recall a precisión fija**, NO accuracy (clases
   desbalanceadas).
 - **Punto de control go/no-go:** el modelo debe superar un baseline trivial
-  (predecir lo del periodo anterior o tasa histórica de la zona). Si no, detener.
-
-## Ruta de desarrollo (fase actual: FASE 0)
-
-0. **Setup mínimo + definición** — repo, venv, requirements, conexión a Neon,
-   definición escrita de etiqueta/horizontes. NO montar infra pesada aún.
-1. **Dataset maestro** (`zona × semana`) — ETL + integración de fuentes + features
-   + etiquetas, respetando anti-fuga. ES EL CORAZÓN DEL PROYECTO.
-2. **Baseline + PoC** — baseline tonto, modelo simple, validación temporal →
-   PUNTO DE CONTROL.
-3. **Modelo** — XGBoost/LightGBM, desbalance, ajuste de horizontes, guardar `.pkl`.
-4. **Despliegue** — script de scoring semanal → tabla `riesgo_zona_semana` en
-   Postgres → integrar al flujo de alertas.
-5. **Monitoreo** — comparar predicción vs realidad, reentrenar mensual.
-
-REGLA DE ORO: no escribir código de modelo hasta que la tabla maestra (Fase 1)
-esté lista.
+  (tasa histórica de la UGT) por al menos +0.05 de PR-AUC. Si no, detener.
 
 ## Estructura de repositorio
 
 ```
-prediccion-conflictos/
+ML alertas/
 ├── requirements.txt
-├── notebooks/            # exploración (Fases 1-3)
+├── CLAUDE.md
+├── README_ANCASH.md       # documentación técnica detallada del modelo
+├── notebooks/             # exploración
 ├── src/
-│   ├── data/             # extracción + construcción del dataset
-│   ├── features/         # cálculo de features (reutilizable)
-│   ├── models/           # entrenamiento y evaluación
-│   └── scoring/          # predicción semanal (Fase 4)
-├── models/               # artefactos entrenados (.pkl)
-└── data/                 # datasets intermedios
+│   ├── data/               # loaders: incidentes, calendario, INEI, Defensoría
+│   ├── dataset/
+│   │   └── build_ancash.py        # tabla maestra UGT × semana
+│   ├── models/
+│   │   └── train_ancash.py        # entrenamiento + punto de control go/no-go
+│   └── scoring/
+│       ├── ancash_datos.py            # índice de actividad observada (no es predicción)
+│       ├── score_ancash.py            # scoring semanal del modelo
+│       ├── dashboard_ancash.py        # dashboard Plotly (interno)
+│       ├── dashboard_ancash_predictivo.py  # dashboard con plantilla de diseño + datos reales
+│       └── assets/ancash_dashboard/    # plantilla visual, runtime, logo
+├── models/                # artefactos entrenados (.pkl, gitignored)
+└── data/                  # datasets intermedios (gitignored)
 ```
 
 ## Convenciones
 
 - Código y comentarios pueden ir en español.
 - Las fechas de corte y ventanas SIEMPRE explícitas en el código (evitar fuga).
-- Antes de proponer un modelo, confirmar que el baseline existe y está medido.
+- Antes de proponer un cambio al modelo, confirmar que el baseline existe y
+  está medido.
 
 ## Estado actual (junio 2026)
 
-### Decisiones de infraestructura
-- Base de datos: SQLite local (`data/riesgo_zona_semana.db`)
-- Despliegue: NO — el sistema corre localmente, sin Railway ni Neon
-- Acceso: solo el analista de datos
+### Modelo activo (Track A — Áncash, UGT × semana)
+- Archivo: `models/modelo_v1_track_A_ancash.pkl`
+- Algoritmo: regresión logística (`class_weight="balanced"`), horizonte `y_30`
+- PR-AUC modelo (logistic_regression, el que se guarda): **0.8004** — ahora
+  el mejor de los dos candidatos evaluados (random_forest: 0.792), gracias a
+  las features de reportes Antamina (`rep_antamina_neg_4w`,
+  `rep_compromiso_4w`). PR-AUC baseline (tasa histórica): 0.554 → GO (+0.246)
+- Dataset: 444 observaciones (4 UGTs × ~111 semanas), 195 con protesta (43.9%,
+  subió desde 28.6% al sumar `dataFormulario.xlsx` — ver memoria del proyecto
+  `project_nuevas_fuentes_2026_06`)
+- **Umbral de alerta calibrado** (`src/models/recalibrar_umbral.py`,
+  2026-06-30, sobre predicciones out-of-fold walk-forward): ALTO ≥ 80%
+  (precisión 75%, recall 69%, tasa de alerta 59% con el modelo actual),
+  MEDIO 44–79% (tasa histórica de protesta como referencia de "más riesgo
+  que el promedio"), BAJO < 44%. Reemplaza el 55%/35% que era solo
+  referencia visual.
 
 ### Operación semanal
-Cada lunes ejecutar manualmente:
 ```bash
-python src/scoring/score_semanal.py   # calcula riesgo 5 zonas
-python src/scoring/query_riesgo.py    # muestra tabla de resultados
+python -m src.scoring.score_ancash               # predicción por UGT (consola)
+python -m src.scoring.dashboard_ancash_predictivo # dashboard interactivo
 ```
 
-### Modelo activo (Track B)
-- Archivo: models/modelo_v1_track_B.pkl
-- Algoritmo: LightGBM, horizonte y_30, umbral=0.5
-- PR-AUC: 0.714 | Tasa de alerta esperada: 16.7%
-- Zonas: Ica, Pisco, Huarmey, Barranca, Lima Provincias
+### Reconstruir el pipeline desde cero
+```bash
+python -m src.data.loader_calendario
+python -m src.data.loader_inei
+python -m src.data.scraper_defensoria   # requiere conexión, opcional si ya existe el CSV
+python -m src.data.loader_oefa          # requiere conexión, opcional si ya existe el parquet
+python -m src.data.loader_reportes      # parsea src/data/2025/ y 2026/ (Word/PowerPoint)
+python -m src.dataset.build_ancash
+python -m src.models.train_ancash
+python -m src.models.recalibrar_umbral  # recalibrar el umbral si el modelo cambió
+```
 
-### Track A (minero) — pausado
-Reactivar cuando haya más historia o fuente de etiqueta alternativa.
-Zonas pendientes: Áncash, Huánuco, Pasco, Cajamarca, La Libertad
+### Fase de validación operativa
+Cada viernes anotar: ¿hubo conflicto/protesta real esta semana en cada UGT?
+(sí/no). Con varias semanas de datos se puede calcular el recall operativo
+real y contrastarlo contra el PR-AUC de validación.
 
-### Fase 5 — Validación operativa
-Cada viernes anotar en una hoja simple:
-¿Hubo conflicto/protesta real esta semana en cada zona? (sí/no)
-Con 6 semanas de datos ya puedes calcular el recall operativo real.
+### Limitaciones honestas (ver README_ANCASH.md, sección 9)
+Dataset todavía pequeño (444 filas, solo 71 eventos reales sostienen el
+label), sin umbral formal, features de contexto departamental limitadas.
