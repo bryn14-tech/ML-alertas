@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -X utf8 -m src.dataset.build_ancash)",
+      "Bash(ls data/interim/)",
+      "Bash(ls data/processed/)",
+      "Bash(ls models/)",
+      "Bash(python -X utf8 -c ' *)",
+      "Bash(python -X utf8)",
+      "Bash(python -X utf8 \"C:/Users/OPERAD~1/AppData/Local/Temp/claude/c--ML-alertas-ML-alertas/4d4f48d2-07ab-4f25-837f-999008b8edfa/scratchpad/ab_test.py\")",
+      "Bash(PYTHONPATH=\"c:/ML alertas/ML-alertas\" python -X utf8 \"C:/Users/OPERAD~1/AppData/Local/Temp/claude/c--ML-alertas-ML-alertas/4d4f48d2-07ab-4f25-837f-999008b8edfa/scratchpad/ab_test.py\")",
+      "Bash(cd \"c:/ML alertas/ML-alertas\" && ls \"C:/Users/Operador_03/.claude/projects/c--ML-alertas-ML-alertas/memory/\" 2>/dev/null && echo \"---MEMORY.md---\" && cat \"C:/Users/Operador_03/.claude/projects/c--ML-alertas-ML-alertas/memory/MEMORY.md\" 2>/dev/null | head -30)",
+      "Read(//c/Users/Operador_03/.claude/projects/c--ML-alertas-ML-alertas/memory/**)"
+    ]
+  }
+}

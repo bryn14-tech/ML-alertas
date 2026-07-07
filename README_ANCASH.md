@@ -682,6 +682,48 @@ Dataset con nivel de impacto numérico (70–500) por evento de protesta.
 Feature `prot_impacto_ultimo` (severidad de la última protesta conocida,
 forward-fill por UGT): PR-AUC 0.780 → 0.761. Descartada.
 
+### 11.4 Defensoría del Pueblo — reportes mensuales históricos (2016–2026)
+
+**Qué se hizo (2026-07-07).** Se construyó `src/data/loader_defensoria_historico.py`:
+descarga los Reportes Mensuales de Conflictos Sociales de la Defensoría (PDF) y
+los parsea con `pypdf`, extrayendo cada conflicto de Áncash que toca los 18
+distritos de las 4 UGTs. Salida: `data/interim/defensoria_hist_conflictos.parquet`.
+
+- **Cobertura:** 103 meses-reporte, 2016-01 → 2026-05 (faltan ~11 meses sueltos
+  por nombres de archivo irregulares en el sitio de la Defensoría; se rellenan
+  con forward-fill porque la cronicidad persiste mes a mes).
+- **Motivación:** `dataHistoricaProtestas.xlsx` (prensa, §11.2) **subregistra
+  2016–2020** — aparece en cero pese a que Áncash fue la región más conflictiva
+  del país esos años. La Defensoría tiene cobertura mensual completa y resuelve
+  ese hueco de cronicidad. Ejemplo: 2019 pasa de **0** eventos (prensa) a 54
+  conflicto-meses en Mina San Marcos.
+- **Validación:** en oct–nov 2021 (paro de Aquia) el parser coincide con la
+  prensa **y** añade la dimensión Aquia/Huallanca que la prensa atribuía
+  distinto. No inventa ni omite frente al ground truth conocido.
+
+**Distinción clave (CLAUDE.md).** La Defensoría rastrea el estado *crónico* de
+cada conflicto (activo/latente cada mes); la mayoría de los meses dice "no se
+registraron nuevos hechos". Eso es **contexto**, no label — usar la mera
+existencia del conflicto como target lo volvería trivialmente positivo. Las
+acciones de protesta con fecha (paro/bloqueo/movilización) son ralas.
+
+**Resultado como feature de contexto: descartada.** Se integró la cronicidad por
+UGT (`def_conf_activos_ugt`, `def_conf_antamina_ugt`, vía
+`_join_defensoria_conflictos()` en `build_ancash.py`, rezago de 2 meses + ffill)
+y se midió A/B walk-forward: **delta PR-AUC +0.0000 (LR) / +0.0018 (RF)**. No
+mejora. Misma lección que §11.1 (OEFA) y §11.2 (hist_prot): la cronicidad
+mensual es **redundante** con las features autoregresivas de corto plazo
+(`inc_prot_*`, `racha_prot`, `dias_desde_ultima_prot`). Feature dejada FUERA de
+`FEATURES` (documentada en `train_ancash.py`); la columna permanece en el dataset.
+
+**Dónde apunta esto (trabajo pendiente de alto valor).** El valor de la
+Defensoría **no** es como feature de contexto sino como **cimiento para extender
+la ventana de entrenamiento hacia atrás**. Hoy `FECHA_INICIO = 2024-01-01`; con
+los eventos con fecha de 2016–2023 (Defensoría + `dataHistoricaProtestas`) se
+puede entrenar sobre un historial ~4× más largo, usándolos como **label real y
+features autoregresivas**, no como contexto pegado encima. Ver §13 (roadmap) y
+§11.2 (`_join_historica()` ya implementado, esperando esta extensión).
+
 ---
 
 ## 12. Limitaciones honestas (léase antes de presentar el modelo a alguien)
@@ -716,11 +758,11 @@ forward-fill por UGT): PR-AUC 0.780 → 0.761. Descartada.
 
 ## 13. Trabajo pendiente / roadmap
 
-| Prioridad | Tarea | Bloqueante |
+| Prioridad | Tarea | Bloqueante / estado |
 |---|---|---|
-| Alta | Extender ventana de entrenamiento hacia atrás | Necesita datos de incidentes desde 2018–2021 |
+| **Alta** | **Extender ventana de entrenamiento hacia atrás (`FECHA_INICIO` → 2016)** | **Parcialmente desbloqueado: ya hay eventos con fecha 2016–2023 de la Defensoría (`loader_defensoria_historico.py`, §11.4) + `dataHistoricaProtestas`. Falta: extender `FECHA_INICIO`, usar esos eventos como label real y aceptar que reportes-Antamina/OEFA/Defensoría-escalamiento quedan en 0 pre-2023.** |
 | Alta | Añadir precio del cobre como feature (zona minera) | Fuente a definir |
-| Media | Reactivar `hist_prot_antamina_*` cuando haya datos históricos | Depende del punto anterior |
+| Media | Reactivar `hist_prot_antamina_*` y `def_conf_*` cuando la ventana se extienda | Depende del punto anterior (§11.2, §11.4) |
 | Media | Integrar alertas propias del sistema actual como feature | Acceso a BD histórica |
 | Media | Validación operativa: anotar semanal si hubo protesta real por UGT | Proceso manual, acumulable |
 | Baja | GDELT: intensidad mediática como señal de contexto | API disponible, requiere investigación |

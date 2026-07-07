@@ -47,6 +47,15 @@ FEATURES = [
 # en vez de mejorarlo. La función _join_impacto() en build_ancash.py se
 # mantiene (la columna queda en el dataset) por si sirve en una iteración
 # futura con más datos, pero no se usa en el modelo. Ver memoria del proyecto.
+# "def_conf_activos_ugt", "def_conf_antamina_ugt" (cronicidad de conflictos por
+# UGT desde los Reportes Mensuales de la Defensoría, 2016-2026;
+# _join_defensoria_conflictos en build_ancash) se probaron y se descartaron:
+# delta PR-AUC +0.0000 (LR) / +0.0018 (RF) sobre la ventana 2024-2026. Como
+# hist_prot y OEFA, la cronicidad mensual es redundante con las features
+# autoregresivas de corto plazo. El VALOR de esa fuente Defensoría no es como
+# feature de contexto sino como CIMIENTO para extender la ventana de
+# entrenamiento hacia atrás (2016-2023 como filas reales de label). Ver memoria
+# del proyecto y src.data.loader_defensoria_historico.
 
 MODELOS = {
     "logistic_regression": Pipeline([

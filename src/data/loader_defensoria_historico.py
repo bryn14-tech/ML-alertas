@@ -124,6 +124,27 @@ URLS_CONFIRMADAS = {
     (2021, 12): f"{BASE}/2022/01/Reporte-Mensual-de-Conflictos-Sociales-n.%C2%B0-214-%E2%80%93-diciembre-2021.pdf",
     (2022, 1): f"{BASE}/2022/02/Reporte-Mensual-de-Conflictos-Sociales-N%C2%B0-215-Enero-2022-1.pdf",
     (2022, 8): f"{BASE}/2022/09/Reporte-Mensual-de-Conflictos-Sociales-N%C2%B0-222-Agosto-2022.pdf",
+    # 2023-2026: nomenclatura irregular (VF, sin mes, meses abreviados, "3.pdf") → hardcode
+    (2023, 12): f"{BASE}/2024/01/Reporte-Mensual-de-Conflictos-Sociales-N%C2%B0-238-Diciembre-2023.pdf",
+    (2024, 2): f"{BASE}/2024/03/Reporte-Mensual-de-Conflictos-Sociales-n.%C2%B0-240-Febrero-2024.pdf",
+    (2024, 3): f"{BASE}/2024/04/ReporteConflictos_marzo2024.pdf",
+    (2024, 5): f"{BASE}/2024/06/Reporte-Mensual-de-Conflictos-Sociales-n.%C2%B0-243-Mayo-2024.pdf",
+    (2024, 6): f"{BASE}/2024/07/Reporte-Mensual-de-Conflictos-Sociales-n.%C2%B0-244-Junio_2024.pdf",
+    (2024, 7): f"{BASE}/2024/08/Reporte-de-Conflictos-Sociales-n.%C2%B0-245-julio-2024.pdf",
+    (2024, 10): f"{BASE}/2024/11/Reporte-Mensual-de-Conflictos-Sociales-N%C2%B0-248-Octubre_2024.pdf",
+    (2024, 11): f"{BASE}/2024/12/3.pdf",
+    (2024, 12): f"{BASE}/2025/01/Reporte-Conflictos-Sociales-250-Diciembre-2024.pdf",
+    (2025, 1): f"{BASE}/2025/02/Reporte-Mensual-de-Conflictos-Sociales-N-251-Enero-2025.pdf",
+    (2025, 4): f"{BASE}/2025/05/Reporte-Mensual-de-Conflictos-Sociales-N%C2%B0-254-Abr_2025.pdf",
+    (2025, 6): f"{BASE}/2025/07/Reporte-de-conflictos-sociales-n.%C2%BA-256-%E2%80%93-junio-2025.pdf",
+    (2025, 8): f"{BASE}/2025/09/Reporte-de-conflictos-sociales-n.%C2%BA-258-%E2%80%93-agosto-2025.pdf",
+    (2025, 9): f"{BASE}/2025/10/Reporte-de-Conflictos-Sociales-N%C2%B0-259.pdf",
+    (2025, 10): f"{BASE}/2025/11/Reporte-Mensual-de-Conflictos-Sociales-N%C2%B0-260-Oct_2025.pdf",
+    (2025, 12): f"{BASE}/2026/01/Reporte-de-conflictos-sociales-n.%C2%BA-262-%E2%80%93-diciembre-2025.pdf",
+    (2026, 1): f"{BASE}/2026/02/10.pdf",
+    (2026, 3): f"{BASE}/2026/04/Reporte-de-Conflictos-Sociales-n-265-VF.pdf",
+    (2026, 4): f"{BASE}/2026/05/Reporte-de-Conflictos-Sociales-n-266-VF.pdf",
+    (2026, 5): f"{BASE}/2026/06/Reporte-de-Conflictos-Sociales-n-267-VF.pdf",
 }
 
 

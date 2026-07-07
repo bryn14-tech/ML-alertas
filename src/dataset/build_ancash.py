@@ -169,6 +169,44 @@ def _join_defensoria(master: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 
+def _join_defensoria_conflictos(master: pd.DataFrame) -> pd.DataFrame:
+    """Cronicidad de conflictos por UGT desde los Reportes Mensuales de la
+    Defensoría (src.data.loader_defensoria_historico). A diferencia de
+    `def_escalamiento_ancash` (departamental, un solo valor para las 4 UGTs),
+    esto es POR UGT y varía en el tiempo: cuántos conflictos activos/latentes
+    tiene cada UGT cada mes, y cuántos están dirigidos a Antamina.
+
+    Es feature de CONTEXTO (cronicidad), NO label — la mera existencia de un
+    conflicto crónico no dispara el target (CLAUDE.md). Anti-fuga: rezago de
+    2 meses (el reporte del mes M se publica en M+1) + ffill por UGT, que
+    además cubre los meses-reporte que no se pudieron descargar."""
+    ruta = INTERIM_DIR / "defensoria_hist_conflictos.parquet"
+    cols = ["def_conf_activos_ugt", "def_conf_antamina_ugt"]
+    if not ruta.exists():
+        warnings.warn(f"No se encontró {ruta}. Corre src.data.loader_defensoria_historico.")
+        for c in cols:
+            master[c] = np.nan
+        return master
+    d = pd.read_parquet(ruta)
+    agg = d.groupby(["anio", "mes", "ugt"]).agg(
+        def_conf_activos_ugt=("conflicto_activo", "sum"),
+        def_conf_antamina_ugt=("es_antamina", "sum"),
+    ).reset_index()
+
+    fecha_rep = master["semana_inicio"] - pd.DateOffset(months=2)  # rezago anti-fuga
+    master = master.copy()
+    master["_a"] = fecha_rep.dt.year
+    master["_m"] = fecha_rep.dt.month
+    merged = master.merge(
+        agg.rename(columns={"anio": "_a", "mes": "_m"}),
+        on=["_a", "_m", "ugt"], how="left",
+    ).drop(columns=["_a", "_m"])
+    merged = merged.sort_values(["ugt", "semana_inicio"])
+    for c in cols:
+        merged[c] = merged.groupby("ugt")[c].ffill()
+    return merged
+
+
 def _join_oefa(master: pd.DataFrame) -> pd.DataFrame:
     """Tensión ambiental minera (denuncias OEFA/SINADA), contexto acumulado
     por UGT — ventana móvil de 12 meses. NO es un predictor de corto plazo
@@ -333,6 +371,7 @@ def construir() -> pd.DataFrame:
     master = _join_calendario(master)
     master = _join_inei(master)
     master = _join_defensoria(master)
+    master = _join_defensoria_conflictos(master)
     master = _join_oefa(master)
     master = _join_impacto(master)
     master = _join_reportes(master)
@@ -348,6 +387,9 @@ def construir() -> pd.DataFrame:
     master["prot_impacto_ultimo"] = master["prot_impacto_ultimo"].fillna(0)
     master["hist_prot_antamina_acum"] = master["hist_prot_antamina_acum"].fillna(0)
     master["hist_prot_antamina_5y"] = master["hist_prot_antamina_5y"].fillna(0)
+    # Cronicidad Defensoría por UGT: NaN (sin reporte disponible aún) -> 0
+    master["def_conf_activos_ugt"] = master["def_conf_activos_ugt"].fillna(0)
+    master["def_conf_antamina_ugt"] = master["def_conf_antamina_ugt"].fillna(0)
     return master.reset_index(drop=True)
 
 
