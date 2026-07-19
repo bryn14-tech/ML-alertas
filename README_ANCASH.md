@@ -760,11 +760,11 @@ features autoregresivas**, no como contexto pegado encima. Ver §13 (roadmap) y
 
 | Prioridad | Tarea | Bloqueante / estado |
 |---|---|---|
-| **Alta** | **Extender ventana de entrenamiento hacia atrás (`FECHA_INICIO` → 2016)** | **Parcialmente desbloqueado: ya hay eventos con fecha 2016–2023 de la Defensoría (`loader_defensoria_historico.py`, §11.4) + `dataHistoricaProtestas`. Falta: extender `FECHA_INICIO`, usar esos eventos como label real y aceptar que reportes-Antamina/OEFA/Defensoría-escalamiento quedan en 0 pre-2023.** |
-| Alta | Añadir precio del cobre como feature (zona minera) | Fuente a definir |
-| Media | Reactivar `hist_prot_antamina_*` y `def_conf_*` cuando la ventana se extienda | Depende del punto anterior (§11.2, §11.4) |
+| **Alta** | **Extender ventana de entrenamiento (RF + calibración isotónica)** | **Infraestructura LISTA: 62 PDFs Defensoría 2018–2023 descargados, `_incidentes_defensoria_hist()` implementada en `build_ancash.py`, `FECHA_INICIO="2018-01-01"` comentado y listo para activar. Bloqueante: RF con datos extendidos comprime probabilidades (~63% para todas las UGTs), rompiendo el sistema de alertas por niveles. Para desbloquear: agregar `CalibratedClassifierCV(method='isotonic')` al pipeline RF con holdout temporal. Ver comentario detallado en `build_ancash.py`.** |
+| ~~Alta~~ | ~~Añadir precio del cobre como feature~~ | **Implementado y descartado (jul 2026):** `loader_cobre.py` + `_join_cobre()` funcionan (yfinance HG=F). PR-AUC 0.7994→0.7989. En ventana 2024-2026 el precio tiene tendencia monotónica (+4→+6 USD/lb) que se solapa con features de calendario. Pendiente con ciclo completo de commodities. Código disponible. |
+| Media | Reactivar `hist_prot_antamina_*` y `def_conf_*` cuando la ventana se extienda | Depende del punto 1: hoy son constantes por UGT en ventana 2024-2026 → ruido. |
 | Media | Integrar alertas propias del sistema actual como feature | Acceso a BD histórica |
-| Media | Validación operativa: anotar semanal si hubo protesta real por UGT | Proceso manual, acumulable |
+| ~~Media~~ | ~~Validación operativa: anotar semanal si hubo protesta real por UGT~~ | **IMPLEMENTADO (jul 2026):** `score_ancash.py` guarda log automático en `data/processed/predicciones_log.csv`. Plantilla en `data/processed/resultados_reales.csv`. Script `src/scoring/validar_operativo.py` calcula métricas cuando hay datos anotados. |
 | Baja | GDELT: intensidad mediática como señal de contexto | API disponible, requiere investigación |
 | Baja | Resolver cobertura de Paramonga | Nueva fuente de datos de Lima-Barranca |
 | Baja | Recuperar Excel fuente de INEI para reproducibilidad completa | Archivar en carpeta del equipo |

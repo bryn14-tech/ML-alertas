@@ -36,6 +36,13 @@ FEATURES = [
     "tasa_pobreza", "def_escalamiento_ancash", "oefa_denuncias_mineria_12m",
     "rep_antamina_neg_4w", "rep_compromiso_4w",
 ]
+# "cobre_precio_usd", "cobre_ret_4w" (precio del cobre HG=F COMEX, loader_cobre.py)
+# se probaron y descartaron: PR-AUC 0.8004 → 0.7989 (−0.0015). En la ventana
+# 2024–2026 el precio del cobre tiene tendencia monotónica al alza (~4→~6 USD/lb)
+# que se solapa con las features de calendario (mes, trimestre, semana_iso) — el
+# modelo no distingue señal causal de correlación temporal espuria. Con una
+# ventana de entrenamiento más larga (ciclos completos de commodity) el resultado
+# podría ser distinto. Código disponible en _join_cobre() de build_ancash.
 # "prot_impacto_ultimo" (severidad de la última protesta, dataProtestas.xlsx)
 # se probó y se descartó: bajó el PR-AUC de 0.780 a 0.761 (logistic_regression)
 # "hist_prot_antamina_acum", "hist_prot_antamina_5y" (tensión histórica 2001–,
@@ -162,15 +169,15 @@ def main() -> None:
     print(f"✓ Resultados guardados en {SALIDA}")
 
     # Si pasa el control, guardar el modelo final entrenado sobre TODOS los datos.
-    # Se prefiere logistic_regression por su estabilidad (±std mucho menor que RF
-    # con este dataset pequeño), aunque el PR-AUC medio sea casi idéntico.
+    # Se prefiere logistic_regression: con FECHA_INICIO=2024 (dataset actual) da
+    # PR-AUC 0.8004 ±std bajo y probabilidades bien dispersas (Huarmey 90%,
+    # Huallanca 25%). RF mejora en ranking pero sus probabilidades quedan
+    # comprimidas sin calibración efectiva — ver comentario en build_ancash.py.
     if es_go:
         modelo_final_nombre = "logistic_regression"
         modelo_final = clone(MODELOS[modelo_final_nombre]).fit(X, y)
-        # IMPORTANTE: pr_auc_cv debe ser el PR-AUC del modelo que efectivamente
-        # se guarda (logistic_regression), no el del "mejor modelo" usado para
-        # el punto de control go/no-go — pueden diferir (random_forest suele
-        # ganar por PR-AUC medio, pero se descarta por inestabilidad/±std alto).
+        # pr_auc_cv: del modelo que efectivamente se guarda (LR), no del mejor
+        # candidato del go/no-go (que puede ser RF con PR-AUC ligeramente mayor).
         pr_auc_modelo_final = pr_auc_por_modelo[modelo_final_nombre]
         ruta = Path("models") / "modelo_v1_track_A_ancash.pkl"
         ruta.parent.mkdir(parents=True, exist_ok=True)

@@ -27,6 +27,25 @@ HORIZONTES = [14, 30, 60]
 FECHA_INICIO = "2024-01-01"
 FECHA_CORTE = pd.Timestamp("2026-04-13")  # mismo corte que la tabla maestra principal
 
+# Inicio de cobertura continua y fiable de dataIncidentes + dataFormulario.
+# Antes de esta fecha el label viene de la Defensoría mensual (proxy menos sensible).
+FECHA_INICIO_INCIDENTES = pd.Timestamp("2023-08-18")
+
+# ── EXTENSIÓN DE VENTANA (bloqueada) ──────────────────────────────────────────
+# Se descargaron 62 PDFs de la Defensoría (2018-2023, 86% cobertura) y la
+# infraestructura está lista en _incidentes_defensoria_hist(). Con
+# FECHA_INICIO="2018-01-01" el dataset pasa de 444 a 1,696 filas. Dos intentos
+# de desbloqueo fallaron operativamente:
+#   1. RF sin calibrar: probabilidades comprimidas ~63% para todas las UGTs
+#   2. RF con CalibratedClassifierCV(isotonic, cv=TimeSeriesSplit(3)):
+#      calibración se ancló a la tasa histórica (27.2%) en vez de la de
+#      deployment (43.9%) → todo BAJO, 22-26%, sin spread útil
+# LR tampoco mejora con la extensión: rep_antamina_neg_4w / rep_compromiso_4w
+# son 0 en 2018-2023 y diluyen los coeficientes → PR-AUC baja 0.8004 → 0.4929.
+# Solución correcta pendiente: calibrar isotónica SOLO sobre predicciones OOF
+# del período 2024-2026 (distribución de deployment). Requiere cambios al
+# framework de evaluación. Hasta entonces, FECHA_INICIO="2024-01-01" + LR.
+
 ZONA_DEFENSORIA = "Áncash"  # las 4 UGTs comparten el contexto departamental
 
 
@@ -58,12 +77,51 @@ def _cargar_defensoria() -> pd.DataFrame:
 
 
 # ── Incidentes por UGT ────────────────────────────────────────────────────────
+def _incidentes_defensoria_hist() -> pd.DataFrame:
+    """Protestas proxy de los Reportes Mensuales de la Defensoría (2018-2023).
+
+    Cada mes-UGT con posible_protesta=True se convierte en un evento con
+    fecha=día-15 del mes (midpoint mensual). Solo se incluyen eventos ANTES del
+    inicio de dataIncidentes para evitar doble conteo. Meses sin PDF disponible
+    se tratán implícitamente como sin protesta (limitación documentada)."""
+    ruta = INTERIM_DIR / "defensoria_hist_conflictos.parquet"
+    if not ruta.exists():
+        return pd.DataFrame(columns=["fecha", "ugt", "categoria"])
+    d = pd.read_parquet(ruta)
+    # Un evento por (mes, UGT) aunque haya múltiples conflictos en el reporte
+    prot = (
+        d.groupby(["anio", "mes", "ugt"])["posible_protesta"]
+        .any()
+        .reset_index()
+        .query("posible_protesta")
+    )
+    prot["fecha"] = pd.to_datetime(
+        prot["anio"].astype(str) + "-" + prot["mes"].astype(str).str.zfill(2) + "-15"
+    )
+    prot = prot[prot["fecha"] < FECHA_INICIO_INCIDENTES].copy()
+    prot["categoria"] = "PROTESTA"
+    return prot[["fecha", "ugt", "categoria"]]
+
+
 def _incidentes_por_ugt() -> pd.DataFrame:
+    """Carga incidentes de protesta/violencia por UGT desde dataIncidentes +
+    dataFormulario. Si FECHA_INICIO se extiende antes de FECHA_INICIO_INCIDENTES,
+    añade los eventos proxy de la Defensoría histórica para llenar ese hueco.
+    Con FECHA_INICIO=2024 los eventos Defensoría son pre-2024 y no aportan nada
+    al label, pero SÍ cambian features de recencia (dias_desde_ultima_prot) de
+    forma que reduce el PR-AUC de 0.807 a 0.779 — por eso se omiten cuando no
+    se necesitan."""
     inc = _cargar_incidentes_raw()
     dist2ugt = {_norm(d): ugt for ugt, _, d in JERARQUIA}
     inc["ugt"] = inc["distrito_n"].map(dist2ugt)
     inc = inc[inc["ugt"].notna() & inc["categoria"].isin(["PROTESTA", "VIOLENCIA"])].copy()
-    return inc[["fecha", "ugt", "categoria"]]
+    inc = inc[["fecha", "ugt", "categoria"]]
+
+    if pd.Timestamp(FECHA_INICIO) < FECHA_INICIO_INCIDENTES:
+        hist = _incidentes_defensoria_hist()
+        if len(hist) > 0:
+            inc = pd.concat([hist, inc], ignore_index=True).drop_duplicates(["fecha", "ugt", "categoria"])
+    return inc
 
 
 # ── Features autoregresivas por UGT ──────────────────────────────────────────
@@ -276,6 +334,53 @@ def _join_reportes(master: pd.DataFrame) -> pd.DataFrame:
     return master
 
 
+def _join_cobre(master: pd.DataFrame) -> pd.DataFrame:
+    """Precio del cobre (HG=F, COMEX) como feature macroeconómica global.
+
+    Dos features, ambas con anti-fuga (se usa el cierre de la semana anterior
+    a semana_inicio, nunca el de la semana en curso):
+      - cobre_precio_usd : cierre de la semana t-1 en USD/lb
+      - cobre_ret_4w     : retorno porcentual de t-5 a t-1 (momentum 4 semanas)
+
+    Feature NO específica por UGT — el precio del cobre es el mismo para las
+    4 UGTs en cada semana (señal macroeconómica global, como tasa_pobreza).
+
+    Hipótesis: precio alto → comunidades exigen más regalías/beneficios;
+    caída brusca → recortes de inversión social. Ambas pueden disparar tensión.
+    Se incluye el nivel Y el momentum para capturar ambas direcciones."""
+    ruta = INTERIM_DIR / "cobre_semanal.parquet"
+    cols_salida = ["cobre_precio_usd", "cobre_ret_4w"]
+    if not ruta.exists():
+        warnings.warn(f"No se encontró {ruta}. Corre src.data.loader_cobre primero.")
+        for c in cols_salida:
+            master[c] = np.nan
+        return master
+
+    cobre = pd.read_parquet(ruta)
+    fechas = cobre["fecha"].values.astype("datetime64[ns]")
+    precios = cobre["cobre_usd_lb"].values.astype(float)
+
+    sv = master["semana_inicio"].values.astype("datetime64[ns]")
+    # Posición de la semana ANTERIOR (última observación estrictamente antes de semana_inicio)
+    pos_prev = np.searchsorted(fechas, sv, side="left") - 1
+    # Posición de 4 semanas antes del cierre anterior (aprox. 28 días)
+    ventana_4w = sv - np.timedelta64(28, "D")
+    pos_4w = np.searchsorted(fechas, ventana_4w, side="left") - 1
+
+    precio_prev = np.where(pos_prev >= 0, precios[np.clip(pos_prev, 0, len(precios) - 1)], np.nan)
+    precio_4w   = np.where(pos_4w  >= 0, precios[np.clip(pos_4w,  0, len(precios) - 1)], np.nan)
+
+    master = master.copy()
+    master["cobre_precio_usd"] = precio_prev
+    with np.errstate(divide="ignore", invalid="ignore"):
+        master["cobre_ret_4w"] = np.where(
+            precio_4w > 0,
+            (precio_prev - precio_4w) / precio_4w * 100,
+            np.nan,
+        )
+    return master
+
+
 def _join_historica(master: pd.DataFrame) -> pd.DataFrame:
     """Tensión histórica acumulada por UGT desde el inicio de operaciones
     de ANTAMINA (2001), extraída de la fuente de prensa escrita.
@@ -373,6 +478,7 @@ def construir() -> pd.DataFrame:
     master = _join_defensoria(master)
     master = _join_defensoria_conflictos(master)
     master = _join_oefa(master)
+    master = _join_cobre(master)
     master = _join_impacto(master)
     master = _join_reportes(master)
     master = _join_historica(master)

@@ -19,6 +19,7 @@ from src.dataset.build_ancash import (
     _floor_to_monday,
     _incidentes_por_ugt,
     _join_calendario,
+    _join_cobre,
     _join_defensoria,
     _join_historica,
     _join_impacto,
@@ -27,7 +28,9 @@ from src.dataset.build_ancash import (
     _join_reportes,
 )
 
-MODELO_PATH = Path("models") / "modelo_v1_track_A_ancash.pkl"
+MODELO_PATH   = Path("models") / "modelo_v1_track_A_ancash.pkl"
+LOG_PRED_PATH = Path("data/processed") / "predicciones_log.csv"
+LOG_REAL_PATH = Path("data/processed") / "resultados_reales.csv"
 
 # Umbral calibrado (2026-06-30, src/models/recalibrar_umbral.py): precisión
 # 74%, recall 65%, tasa de alerta 56% sobre predicciones out-of-fold
@@ -53,6 +56,7 @@ def calcular_features_actuales(lunes_actual: pd.Timestamp) -> pd.DataFrame:
     master = _join_inei(master)
     master = _join_defensoria(master)
     master = _join_oefa(master)
+    master = _join_cobre(master)
     master = _join_impacto(master)
     master["prot_impacto_ultimo"] = master["prot_impacto_ultimo"].fillna(0)
     master = _join_reportes(master)
@@ -81,6 +85,44 @@ def predecir(lunes_actual: pd.Timestamp | None = None) -> pd.DataFrame:
     return df[["ugt", "semana_scoring", "probabilidad"] + cols_extra].sort_values("probabilidad", ascending=False).reset_index(drop=True)
 
 
+def _guardar_log(pred: pd.DataFrame) -> None:
+    """Appends predictions to predicciones_log.csv (one row per UGT per run)."""
+    fecha_ej = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
+    filas = []
+    for _, r in pred.iterrows():
+        pct = r["probabilidad"] * 100
+        nivel = "ALTO" if pct >= UMBRAL_ALTO else ("MEDIO" if pct >= UMBRAL_MEDIO else "BAJO")
+        filas.append({
+            "semana_scoring": r["semana_scoring"].date(),
+            "ugt": r["ugt"],
+            "probabilidad": round(r["probabilidad"], 4),
+            "nivel": nivel,
+            "fecha_ejecucion": fecha_ej,
+        })
+    nuevo = pd.DataFrame(filas)
+    LOG_PRED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if LOG_PRED_PATH.exists():
+        existente = pd.read_csv(LOG_PRED_PATH)
+        semana_str = str(nuevo["semana_scoring"].iloc[0])
+        # Evitar duplicar la misma semana si se corre dos veces el mismo día
+        existente = existente[existente["semana_scoring"] != semana_str]
+        pd.concat([existente, nuevo], ignore_index=True).to_csv(LOG_PRED_PATH, index=False)
+    else:
+        nuevo.to_csv(LOG_PRED_PATH, index=False)
+    print(f"\n✓ Log guardado en {LOG_PRED_PATH} ({len(filas)} filas)")
+
+
+def _inicializar_log_real() -> None:
+    """Crea resultados_reales.csv si no existe (plantilla para anotación manual)."""
+    if LOG_REAL_PATH.exists():
+        return
+    LOG_REAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(columns=["semana", "ugt", "hubo_protesta_real", "notas"]).to_csv(
+        LOG_REAL_PATH, index=False
+    )
+    print(f"✓ Plantilla creada en {LOG_REAL_PATH} — completar manualmente cada viernes")
+
+
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     pred = predecir()
@@ -90,6 +132,8 @@ def main() -> None:
         pct = r["probabilidad"] * 100
         nivel = "ALTO" if pct >= UMBRAL_ALTO else ("MEDIO" if pct >= UMBRAL_MEDIO else "BAJO")
         print(f"  {r['ugt']:<18} {pct:5.1f}%   {nivel}")
+    _guardar_log(pred)
+    _inicializar_log_real()
 
 
 if __name__ == "__main__":

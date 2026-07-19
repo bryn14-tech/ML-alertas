@@ -77,6 +77,15 @@ predictivo y el script de scoring.
   denuncias anteceden a las protestas reales y el resultado fue inconcluso
   por falta de superposición temporal entre fuentes (el archivo de OEFA
   tiene ~12+ meses de rezago de publicación). Ver memoria del proyecto.
+- **Historial de prensa** (`src/data/dataHistoricaProtestas.xlsx`,
+  `src/data/loader_historica.py`): 481 protestas en Áncash desde 2001 (inicio
+  de operaciones de ANTAMINA), fuente periodística. 60 eventos en las 4 UGTs,
+  34 dirigidos explícitamente a Antamina. Se intentó usar como feature de
+  tensión histórica (`hist_prot_antamina_acum`, `hist_prot_antamina_5y`) pero
+  se descartó: los eventos son casi constantes por UGT en la ventana 2024–2026
+  (todos pre-2024), por lo que actúan como ruido. Código disponible en
+  `_join_historica()` — se podrá activar cuando `dataIncidentes` tenga
+  cobertura histórica desde 2018–2021.
 - **Pendientes de integrar** (mejoras identificadas, no implementadas):
   histórico de alertas propias, precio del cobre (commodities, zona minera),
   intensidad mediática (GDELT).
@@ -136,24 +145,43 @@ ML alertas/
 - Antes de proponer un cambio al modelo, confirmar que el baseline existe y
   está medido.
 
-## Estado actual (junio 2026)
+## Estado actual (julio 2026)
 
 ### Modelo activo (Track A — Áncash, UGT × semana)
 - Archivo: `models/modelo_v1_track_A_ancash.pkl`
 - Algoritmo: regresión logística (`class_weight="balanced"`), horizonte `y_30`
-- PR-AUC modelo (logistic_regression, el que se guarda): **0.8004** — ahora
-  el mejor de los dos candidatos evaluados (random_forest: 0.792), gracias a
-  las features de reportes Antamina (`rep_antamina_neg_4w`,
-  `rep_compromiso_4w`). PR-AUC baseline (tasa histórica): 0.554 → GO (+0.246)
-- Dataset: 444 observaciones (4 UGTs × ~111 semanas), 195 con protesta (43.9%,
-  subió desde 28.6% al sumar `dataFormulario.xlsx` — ver memoria del proyecto
-  `project_nuevas_fuentes_2026_06`)
+- PR-AUC modelo (logistic_regression): **0.8004** (3 folds efectivos; Fold 1
+  skip porque Jan-Jun 2024 tiene 0 positivos en entrenamiento — propio de los
+  datos, no un bug). PR-AUC baseline: 0.554 → GO (+0.2464). Walk-forward RF:
+  0.7922. Se guarda LR por probabilidades bien calibradas (Huarmey 90.3%, spread
+  amplio), vs RF que comprime probabilidades ~63% para todas las UGTs.
+- Dataset: 444 observaciones (4 UGTs × ~111 semanas), 195 con protesta (43.9%)
 - **Umbral de alerta calibrado** (`src/models/recalibrar_umbral.py`,
-  2026-06-30, sobre predicciones out-of-fold walk-forward): ALTO ≥ 80%
-  (precisión 75%, recall 69%, tasa de alerta 59% con el modelo actual),
-  MEDIO 44–79% (tasa histórica de protesta como referencia de "más riesgo
-  que el promedio"), BAJO < 44%. Reemplaza el 55%/35% que era solo
-  referencia visual.
+  2026-06-30): ALTO ≥ 80% (precisión 75%, recall 69%, tasa alerta 59%),
+  MEDIO 44–79%, BAJO < 44%.
+
+### Extensión de ventana histórica (infraestructura lista, bloqueada)
+- Se descargaron 62 PDFs de la Defensoría (2018–2023, 86% cobertura).
+- `src/data/loader_defensoria_historico.py` parsea PDFs y extrae 65 eventos
+  de protesta (mes×UGT) — ver `data/interim/defensoria_hist_conflictos.parquet`.
+- `build_ancash._incidentes_defensoria_hist()` convierte esos eventos a
+  formato compatible (fecha=día 15 del mes) y los añade a `_incidentes_por_ugt`.
+- **Para activar:** cambiar `FECHA_INICIO = "2018-01-01"` en `build_ancash.py`.
+- **Intentos de calibración fallidos (julio 2026):**
+  1. RF sin calibrar: probabilidades comprimidas ~63% para todas las UGTs
+  2. `CalibratedClassifierCV(isotonic, cv=TimeSeriesSplit(3))`: calibración se
+     ancla a la tasa histórica (27.2%) en vez de la de deployment (43.9%) →
+     todo BAJO, 22–26%, sin spread útil. También baja PR-AUC promedio de 0.80
+     a 0.51 porque folds históricos (2019–2022) tienen labels Defensoría muy
+     escasos (~5% positivos) y hunden la métrica.
+  3. LR tampoco mejora: baja de 0.8004 a 0.4929 porque `rep_antamina_neg_4w`
+     y `rep_compromiso_4w` son 0 en 2018-2023 y diluyen sus coeficientes.
+- **Para desbloquear:** calibrar isotónica SOLO sobre predicciones OOF del
+  período 2024-2026 (distribución de deployment): entrenar RF en 2018-2023,
+  predecir 2024-2026, ajustar isotónica ahí, y re-entrenar RF en todos los
+  datos con esa calibración aplicada post-hoc. Requiere refactorizar
+  `train_ancash._preparar()` para exponer fechas y separar el paso de
+  calibración.
 
 ### Operación semanal
 ```bash
@@ -168,6 +196,9 @@ python -m src.data.loader_inei
 python -m src.data.scraper_defensoria   # requiere conexión, opcional si ya existe el CSV
 python -m src.data.loader_oefa          # requiere conexión, opcional si ya existe el parquet
 python -m src.data.loader_reportes      # parsea src/data/2025/ y 2026/ (Word/PowerPoint)
+python -m src.data.loader_historica     # historial de prensa 2001–2025 (dataHistoricaProtestas.xlsx)
+# Extensión histórica (opcional, requiere conexión):
+python -m src.data.loader_defensoria_historico --desde 2018-01 --hasta 2023-12
 python -m src.dataset.build_ancash
 python -m src.models.train_ancash
 python -m src.models.recalibrar_umbral  # recalibrar el umbral si el modelo cambió
@@ -178,6 +209,8 @@ Cada viernes anotar: ¿hubo conflicto/protesta real esta semana en cada UGT?
 (sí/no). Con varias semanas de datos se puede calcular el recall operativo
 real y contrastarlo contra el PR-AUC de validación.
 
-### Limitaciones honestas (ver README_ANCASH.md, sección 9)
-Dataset todavía pequeño (444 filas, solo 71 eventos reales sostienen el
-label), sin umbral formal, features de contexto departamental limitadas.
+### Limitaciones honestas (ver README_ANCASH.md, sección 12)
+Dataset todavía pequeño (444 filas, 195 positivos/43.9%). Umbral calibrado
+(ALTO≥80%, MEDIO≥44%) con predicciones OOF — válido solo para el modelo
+actual; si cambia el feature set hay que recalibrar. Features de contexto
+departamental limitadas. Ver sección 12 del README para lista completa.
